@@ -9,15 +9,16 @@ from pyo import *
 
 from Algorithm import generate_genome, Genome, selection_pair, single_point_crossover, mutation
 
+# Constants
 BITS_PER_NOTE = 4
 KEYS = ["C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B"]
 SCALES = ["major", "minorM", "dorian", "phrygian", "lydian", "mixolydian", "majorBlues", "minorBlues"]
 
-
+# Helper function to convert a list of bits to an integer
 def int_from_bits(bits: List[int]) -> int:
     return int(sum([bit*pow(2, index) for index, bit in enumerate(bits)]))
 
-
+# Function to prompt for user input with optional default value and type casting
 def prompt_for_input(prompt: str, default=None, type_=None):
     user_input = input(prompt + (f" [{default}]" if default is not None else "") + ": ")
     if user_input == "" and default is not None:
@@ -30,13 +31,15 @@ def prompt_for_input(prompt: str, default=None, type_=None):
             return prompt_for_input(prompt, default, type_)
     return user_input
 
-
+# Function to convert a genome to melody representation
 def genome_to_melody(genome: Genome, num_bars: int, num_notes: int, num_steps: int,
                      pauses: int, key: str, scale: str, root: int) -> Dict[str, list]:
+    # Extract notes from the genome
     notes = [genome[i * BITS_PER_NOTE:i * BITS_PER_NOTE + BITS_PER_NOTE] for i in range(num_bars * num_notes)]
 
     note_length = 4 / float(num_notes)
 
+    # Define the scale
     scl = EventScale(root=key, scale=scale, first=root)
 
     melody = {
@@ -45,10 +48,11 @@ def genome_to_melody(genome: Genome, num_bars: int, num_notes: int, num_steps: i
         "beat": []
     }
 
+    # Convert notes to melody representation
     for note in notes:
         integer = int_from_bits(note)
 
-        if not pauses:
+        if pauses:
             integer = int(integer % pow(2, BITS_PER_NOTE - 1))
 
         if integer >= pow(2, BITS_PER_NOTE - 1):
@@ -70,7 +74,7 @@ def genome_to_melody(genome: Genome, num_bars: int, num_notes: int, num_steps: i
     melody["notes"] = steps
     return melody
 
-
+# Function to convert a genome to events for sound synthesis
 def genome_to_events(genome: Genome, num_bars: int, num_notes: int, num_steps: int,
                      pauses: bool, key: str, scale: str, root: int, bpm: int) -> [Events]:
     melody = genome_to_melody(genome, num_bars, num_notes, num_steps, pauses, key, scale, root)
@@ -88,7 +92,7 @@ def genome_to_events(genome: Genome, num_bars: int, num_notes: int, num_steps: i
         ) for step in melody["notes"]
     ]
 
-
+# Function to evaluate the fitness of a genome
 def fitness(genome: Genome, s: Server, num_bars: int, num_notes: int, num_steps: int,
             pauses: bool, key: str, scale: str, root: int, bpm: int) -> int:
     m = metronome(bpm)
@@ -112,7 +116,7 @@ def fitness(genome: Genome, s: Server, num_bars: int, num_notes: int, num_steps:
 
     return rating
 
-
+# Function to generate a metronome sound
 def metronome(bpm: int):
     met = Metro(time=1 / (bpm / 60.0)).play()
     t = CosTable([(0, 0), (50, 1), (200, .3), (500, 0)])
@@ -120,7 +124,7 @@ def metronome(bpm: int):
     freq = Iter(met, choice=[660, 440, 440, 440])
     return Sine(freq=freq, mul=amp).mix(2).out()
 
-
+# Function to save the melody generated from a genome to MIDI file
 def save_genome_to_midi(filename: str, genome: Genome, num_bars: int, num_notes: int, num_steps: int,
                         pauses: bool, key: str, scale: str, root: int, bpm: int):
     melody = genome_to_melody(genome, num_bars, num_notes, num_steps, pauses, key, scale, root)
@@ -148,12 +152,13 @@ def save_genome_to_midi(filename: str, genome: Genome, num_bars: int, num_notes:
     with open(filename, "wb") as f:
         mf.writeFile(f)
 
-
+# Main function
 def main():
+    # Prompt user for various parameters
     num_bars = prompt_for_input("Number of bars", default=8, type_=int)
     num_notes = prompt_for_input("Notes per bar", default=4, type_=int)
     num_steps = prompt_for_input("Number of steps", default=1, type_=int)
-    pauses = prompt_for_input("Introduce Pauses (True/False)", default=True, type_=bool)
+    pauses = prompt_for_input("Introduce Pauses (True/False)", default=False, type_=bool)
     key = prompt_for_input("Key", default="C")
     scale = prompt_for_input("Scale", default="major")
     root = prompt_for_input("Scale Root", default=4, type_=int)
@@ -164,6 +169,7 @@ def main():
 
     folder = str(int(datetime.now().timestamp()))
 
+    # Generate initial population
     population = [generate_genome(num_bars * num_notes * BITS_PER_NOTE) for _ in range(population_size)]
 
     s = Server().boot()
@@ -172,24 +178,28 @@ def main():
 
     running = True
     while running:
+        # Shuffle the population
         random.shuffle(population)
 
+        # Evaluate fitness for each genome in the population
         population_fitness = [(genome, fitness(genome, s, num_bars, num_notes, num_steps, pauses, key, scale, root, bpm)) for genome in population]
 
+        # Sort the population based on fitness
         sorted_population_fitness = sorted(population_fitness, key=lambda e: e[1], reverse=True)
 
-        population = [e[0] for e in sorted_population_fitness]
-
+        # Select top genomes for next generation
         next_generation = population[0:2]
 
         for j in range(int(len(population) / 2) - 1):
 
+            # Function to look up fitness of a genome
             def fitness_lookup(genome):
                 for e in population_fitness:
                     if e[0] == genome:
                         return e[1]
                 return 0
 
+            # Selection, crossover, and mutation
             parents = selection_pair(population, fitness_lookup)
             offspring_a, offspring_b = single_point_crossover(parents[0], parents[1])
             offspring_a = mutation(offspring_a, num=num_mutations, probability=mutation_probability)
@@ -198,6 +208,7 @@ def main():
 
         print(f"population {population_id} done")
 
+        # Playback top two genomes
         events = genome_to_events(population[0], num_bars, num_notes, num_steps, pauses, key, scale, root, bpm)
         for e in events:
             e.play()
@@ -220,11 +231,13 @@ def main():
 
         time.sleep(1)
 
+        # Save MIDI files for each genome in the population
         print("saving population midi …")
         for i, genome in enumerate(population):
             save_genome_to_midi(f"{folder}/{population_id}/{scale}-{key}-{i}.mid", genome, num_bars, num_notes, num_steps, pauses, key, scale, root, bpm)
         print("done")
 
+        # Prompt user to continue or stop
         running = input("continue? [Y/n]") != "n"
         population = next_generation
         population_id += 1
